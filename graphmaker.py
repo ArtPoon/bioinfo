@@ -20,10 +20,12 @@ class GraphMaker:
                     origin=date(1990,1,1), scaling_factor=75., 
                     colours = {True: 'firebrick', False: 'white'},
                     shapes = {}):
-        self.tree = tree
+        self.tree = tree  # BioPython Tree object
         self.tip_labels = tip_labels
         
         self.origin = origin
+        
+        # settings for rendering GraphViz (graphing program)
         self.scaling_factor = scaling_factor
         self.colours = colours
         self.shapes = shapes
@@ -45,7 +47,7 @@ class GraphMaker:
         pathlen += curnode.branch_length
         if pathlen < cutoff:
             if curnode.is_terminal():
-                tips.append(curnode)
+                tips.append((curnode, pathlen))
             else:
                 for c in curnode.clades:
                     tips = self.walk_up(tips, c, pathlen, cutoff)
@@ -66,7 +68,7 @@ class GraphMaker:
             if c == curnode: continue
             if c.is_terminal():
                 if pathlen + c.branch_length < cutoff:
-                    tips.append(c)
+                    tips.append((c, pathlen + c.branch_length))
             else:
                 tips.extend(self.walk_up([], c, pathlen, cutoff))
         
@@ -81,7 +83,7 @@ class GraphMaker:
                     continue
                 if c.is_terminal():
                     if pathlen + c.branch_length < cutoff: # + 0.0503079
-                        tips.append(c)
+                        tips.append((c, pathlen + c.branch_length))
                 else:
                     tips.extend(self.walk_up([], c, pathlen, cutoff))
         return tips
@@ -96,13 +98,36 @@ class GraphMaker:
         outfile.write('\tedge [color=\"#00000070\"];\n')
         outfile.write('\toutputorder=edgesfirst;\n')
     
+    def cluster(self, cutoff):
+        """
+        Generate clusters based on tip-to-tip (patristic) distance cutoff
+        This assumes that each individual (host) is represented by one tip
+        in the tree only.  See find_short_edges() for another implementation
+        with multiple sequences per patient.
+        
+        cutoff: maximum distance for clustering
+        """
+        res = {}  # return object
+        tips = self.tree.get_terminals()  # returns all tips of the tree object
+        
+        # iterate over every tip in the tree
+        for tip1 in tips:
+            # find other tips within cutoff
+            res.update({tip1.name: {}})
+            for tipname, dist in self.walk_trunk(tip1, cutoff):
+                res[tip1.name].update({tipname: dist})
+    
+        return res
+
+    
+
     
     def find_short_edges(self, cutoff, keep_ties=True, minimize=False):
         """
         Find the shortest edge from the earliest sequence of a patient to a 
         any sequence from any other patient.
-        Assumes that the tip name is in the following format:
-            PATID_YYYY-MM-DD_...
+        
+        cutoff = tip-to-tip distance threshold for defining clusters
         minimize = keep only edge from earliest seq to the closest other seq
         keep_ties = [to be used in conjunction with minimize]
                     report all edges with the same minimum distance
@@ -275,9 +300,11 @@ def main():
         sys.exit()
     
     GM = GraphMaker(tree)
-    edges = GM.find_short_edges(cutoff)
-    for edge in edges:
-        print(','.join(map(str, edge)))
+    edges = GM.cluster(cutoff)
+    # output in a format that can be read by GraphViz
+    for tip1, neighbours in edges.iteritems():
+        for tip2, dist in neighbours.iteritems():
+            print(','.join(map(str, [tip1, tip2, dist])))
 
 # ===================================
 if __name__ == "__main__":
