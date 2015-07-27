@@ -2,6 +2,7 @@ import sys
 import math
 from datetime import date
 from Bio import Phylo
+import networkx as nx
 
 class GraphMaker:
     """
@@ -282,11 +283,12 @@ class GraphMaker:
 
 
 def main():
-    if len(sys.argv) < 3:
+    if len(sys.argv) < 4:
         print('Usage:')
-        print('python graphmaker.py [infile.nwk] [cutoff]')
+        print('python graphmaker.py [<input> Newick tree file] [<input> cutoff] [<output> DOT file]')
     treefile = sys.argv[1]
     cutoff = sys.argv[2]
+    dotfile = sys.argv[3]
     try:
         cutoff = float(cutoff)
     except:
@@ -301,10 +303,18 @@ def main():
     
     GM = GraphMaker(tree)
     edges = GM.cluster(cutoff)
-    # output in a format that can be read by GraphViz
+    
+    # generate networkx object
+    g = nx.Graph()
     for tip1, neighbours in edges.iteritems():
         for tip2, dist in neighbours.iteritems():
-            print(','.join(map(str, [tip1, tip2, dist])))
+            g.add_edge(tip1, tip2, dist=dist)
+    
+    # each cluster can be examined using networkx functions; for example,
+    # clusters = nx.connected_components(g)
+    
+    # export as GraphViz file
+    nx.write_dot(g, dotfile)
 
 # ===================================
 if __name__ == "__main__":
