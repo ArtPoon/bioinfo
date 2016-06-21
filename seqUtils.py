@@ -1,27 +1,24 @@
-import sys, HyPhy, re, math
+import sys
+import re
+import math
 import random
 
-def convert_fasta (lines):  
-    blocks = []
+def convert_fasta (handle):
+    result = []
     sequence = ''
-    for i in lines:
-        if i[0] == '$': # skip h info
+    for line in handle:
+        if line.startswith('$'): # skip header line
             continue
-        elif i[0] == '>' or i[0] == '#':
+        elif line.startswith('>') or line.startswith('#'):
             if len(sequence) > 0:
-                blocks.append([h,sequence])
-                sequence = ''   # reset containers
-                h = i.strip('\n')[1:]
-            else:
-                h = i.strip('\n')[1:]
+                result.append([h,sequence])
+                sequence = ''   # reset
+            h = line.strip('>#\n')
         else:
-            sequence += i.strip('\n')
-    try:
-        blocks.append([h,sequence]) # handle last entry
-    except:
-        print lines
-        raise
-    return blocks
+            sequence += line.strip('\n')
+            
+    result.append([h,sequence]) # handle last entry
+    return result
 
 
 def parse_fasta (handle):
@@ -97,48 +94,6 @@ def convert_phylip (lines):
     return res
 
 
-def import_seqs (hyphy, path_to_in):
-    # use HyPhy file handler to import sequences
-    
-    #dump = hyphy.ExecuteBF("DataSet ds = ReadDataFile("+os.getcwd()+'/'+path_to_in+");", False)
-    dump = hyphy.ExecuteBF("DataSet ds = ReadDataFile("+path_to_in+");", False)
-    #dump = hyphy.ExecuteBF("DataSet ds = ReadDataFile(\"/Users/art/wip/StanfordV3/_from_abi.fas\");", False)
-    dump = hyphy.ExecuteBF("DataSetFilter dsf = CreateFilter(ds,1);", False)
-    dump = hyphy.ExecuteBF("GetInformation(seqs, dsf)", False)
-    dump = hyphy.ExecuteBF("GetString(hs, dsf, -1);", False)
-    
-    dump = hyphy.ExecuteBF('fprintf(stdout, seqs);', False)
-    hyout = hyphy.GetStdout()
-    seqs = hyout.sData.replace('\n','').replace('{','').replace('}','').replace('"','').replace('?','').split(',')
-    
-    dump = hyphy.ExecuteBF('fprintf(stdout, hs);', False)
-    hyout = hyphy.GetStdout()
-    #hs = hyout.sData.replace('\n','').replace('{','').replace('}','').replace('"','').split(',')
-    try:
-        hs = eval(hyout.sData.replace('{','[').replace('}',']'))
-    except:
-        print 'ERROR: File empty; did you specify an absolute path?'
-        raise
-    hs = hs[0]
-    
-    # re-merge hs and sequences as a dictionary
-    sd = {}
-    for i in range(len(hs)):
-        if 'Standard' in hs[i]: # drop the consensus sequence from Conan's pipeline
-            continue
-        try:
-            # remove prefix and suffix gaps 
-            #   and in-frame deletions
-            #sd.update({hs[i]:{'rawseq':seqs[i].strip('-').replace('---','')}})
-            sd.update({hs[i]:{'rawseq':seqs[i]}})
-        except:
-            print "ERROR: Number of sequences does not match number of hs!"
-            print len(hs)
-            print hs
-            print len(seqs)
-            raise
-    
-    return sd
 
 complement_dict = {'A':'T', 'C':'G', 'G':'C', 'T':'A', 
                     'W':'S', 'R':'Y', 'K':'M', 'Y':'R', 'S':'W', 'M':'K',
@@ -505,7 +460,10 @@ def plurality_consensus(column, alphabet='ACGT', resolve=False):
             # gap character overrides ties
             return "-"
     else:
-        return ambig_dict["".join(sorted(possib))]
+        if resolve:
+            return random.sample(possib, 1)[0]
+        else:
+            return ambig_dict["".join(sorted(possib))]
 
 
 def majority_consensus (fasta, threshold = 0.5, alphabet='ACGT', ambig_char = 'N'):
@@ -520,18 +478,27 @@ def majority_consensus (fasta, threshold = 0.5, alphabet='ACGT', ambig_char = 'N
     for col in columns:
         cset = set(col)
         if len(cset) == 1:
+            # no polymorphism
             c = cset.pop()
             if c not in alphabet: res += ambig_char
             else: res += c
         else:
-            counts = [(col.count(c), c) for c in cset if c in alphabet]
+            counts = dict([(c, col.count(c)) for c in cset if c in alphabet])
             if len(counts) == 0:
+                # none of the observed characters is in the alphabet
                 res += ambig_char
                 continue
-            counts.sort(reverse=True) # descending order
-            max_count, max_char = counts[0]
-            if max_count / float(len(fasta)) > threshold: res += max_char
-            else: res += ambig_char
+                
+            total_count = sum(counts.values())
+            bases = [c for c, count in counts.iteritems() if count/float(total_count) > threshold]
+            
+            if len(bases) > 1:
+                res += ambig_dict[''.join(sorted(bases))]
+                continue
+                
+            # no mixture
+            res += bases[0]
+            
     return res
 
 
